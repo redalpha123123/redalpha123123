@@ -1,0 +1,479 @@
+<title>Procedural Sun Forge</title>
+<meta name="description" content="A live WebGL sun — procedural noise, real NASA SDO imagery, or both, the same shader technique you'd port into a Minecraft cutscene.">
+<style>
+  /* Layout: a dark cosmic stage with the live sun up top, a texture-source switcher,
+     then a rack of shader dials. Committed single dark theme — the subject is deep space. */
+  :root{
+    --void:#05060a; --panel:#0e1018; --panel-2:#151826; --line:#242838;
+    --fg:#e9ecf5; --dim:#8a90a6; --ember:#ff7a1a; --ember-soft:#ffb061;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%, #120a06 0%, var(--void) 60%), var(--void);
+    color:var(--fg);font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;line-height:1.5;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding-block:clamp(20px,4vw,40px);padding-left:16px;padding-right:16px}
+  header{margin-bottom:18px}
+  .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;color:var(--ember-soft);margin:0 0 6px}
+  h1{font-family:"Chakra Petch","IBM Plex Sans",sans-serif;font-weight:700;font-size:clamp(1.9rem,6vw,3rem);line-height:1.02;margin:0;text-wrap:balance;letter-spacing:-.01em}
+  .sub{color:var(--dim);margin:10px 0 0;max-width:62ch}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#000;box-shadow:0 20px 60px -20px #000 inset,0 0 0 1px #000}
+  canvas{display:block;width:100%;height:clamp(260px,52vh,520px)}
+  .badge{position:absolute;left:12px;bottom:10px;font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--dim);background:rgba(5,6,10,.55);padding:4px 8px;border-radius:6px;border:1px solid var(--line);backdrop-filter:blur(4px)}
+  .src-cite{position:absolute;right:12px;bottom:10px;font-family:"IBM Plex Mono",monospace;font-size:.66rem;color:var(--dim);background:rgba(5,6,10,.55);padding:4px 8px;border-radius:6px;border:1px solid var(--line);backdrop-filter:blur(4px);max-width:60%;text-align:right}
+  .modes{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .modes .seg{font:inherit;font-weight:600;font-size:.82rem;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 15px;cursor:pointer;transition:all .15s}
+  .modes .seg:hover{border-color:var(--ember)}
+  .modes .seg[aria-pressed="true"]{background:linear-gradient(180deg,#ff8a2a,#e55f00);border-color:#ff8a2a;color:#120700}
+  .modes .seg:focus-visible{outline:2px solid var(--ember-soft);outline-offset:2px}
+  .rack{margin-top:12px;display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .ctrl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0;transition:opacity .15s}
+  .ctrl.off{opacity:.4;pointer-events:none}
+  .ctrl .row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+  .ctrl label{font-size:.82rem;font-weight:600}
+  .ctrl .val{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--ember-soft);font-variant-numeric:tabular-nums}
+  .ctrl .hint{font-size:.72rem;color:var(--dim);margin-top:8px}
+  input[type=range]{width:100%;accent-color:var(--ember);height:22px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;align-items:center}
+  button.act{font:inherit;font-weight:600;font-size:.85rem;color:var(--fg);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 15px;cursor:pointer;transition:border-color .15s,background .15s}
+  button.act:hover{border-color:var(--ember);background:#1b1020}
+  button.act.primary{background:linear-gradient(180deg,#ff8a2a,#e55f00);border-color:#ff8a2a;color:#120700}
+  button.act:focus-visible{outline:2px solid var(--ember-soft);outline-offset:2px}
+  details{margin-top:20px;border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+  summary{cursor:pointer;padding:13px 16px;font-weight:600;font-family:"Chakra Petch",sans-serif;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";color:var(--ember)}
+  details[open] summary::before{content:"▾ "}
+  .codewrap{border-top:1px solid var(--line);overflow-x:auto;background:#0a0b11}
+  pre{margin:0;padding:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.76rem;line-height:1.55;color:#cdd3e6;min-width:0}
+  .port{padding:16px;color:var(--dim);font-size:.86rem;border-top:1px solid var(--line)}
+  .port code{font-family:"IBM Plex Mono",monospace;color:var(--ember-soft);font-size:.82em}
+  .port b{color:var(--fg)}
+  .credits{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--dim);font-size:.76rem;line-height:1.7}
+  .credits a{color:var(--ember-soft)}
+  @media (prefers-reduced-motion:reduce){ .badge{display:none} }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Ray-sphere · fBm · real NASA imagery</p>
+    <h1>Procedural Sun Forge</h1>
+    <p class="sub">A sun drawn with pure shader math — now switchable onto real NASA SDO photos and a Solar System Scope surface map. Pick a source, blend live noise into it, then lift the panel to copy the shader into your mod.</p>
+  </header>
+
+  <div class="stage">
+    <canvas id="gl"></canvas>
+    <div class="badge" id="fps">starting…</div>
+    <div class="src-cite" id="cite"></div>
+  </div>
+
+  <div class="modes" id="modes" role="group" aria-label="Texture source">
+    <button class="seg" data-mode="proc"    aria-pressed="true">Procedural noise</button>
+    <button class="seg" data-mode="171"     aria-pressed="false">NASA 171 Å</button>
+    <button class="seg" data-mode="304"     aria-pressed="false">NASA 304 Å</button>
+    <button class="seg" data-mode="surface" aria-pressed="false">Surface map</button>
+  </div>
+
+  <div class="rack" id="rack"></div>
+
+  <div class="bar">
+    <button class="act primary" id="rise">▲ Replay rise</button>
+    <button class="act" id="boom">💥 Explode</button>
+    <button class="act" id="reset">Reset dials</button>
+    <button class="act" id="pause">Pause</button>
+  </div>
+
+  <details>
+    <summary>The shader (GLSL) + how to port it to Minecraft</summary>
+    <div class="codewrap"><pre id="src"></pre></div>
+    <div class="port">
+      <p><b>This is the whole sun.</b> Paste this fragment shader into your mod. Three things change when it runs in Minecraft:</p>
+      <p>1. Replace the fixed camera (<code>ro</code>, <code>rd</code>) with the engine's real one, built from <code>CamFwd / CamUp / CamRight</code> — the same uniforms the demo mod uses.</p>
+      <p>2. Set <code>sunC</code> from the sun's world position relative to the camera, and drive its <code>y</code> from your cutscene clock <code>t</code> so it rises out of the hole.</p>
+      <p>3. Render to an <b>RGBA16F</b> target and add a bloom pass — that turns the <code>&gt;1.0</code> HDR values into the searing glow. For the photo modes, bind your 4K NASA JPEG as <code>uTex</code> exactly like the mod binds its planet maps.</p>
+    </div>
+  </details>
+
+  <div class="credits">
+    <b>Image credits.</b>
+    NASA 171 Å &amp; 304 Å — NASA/SDO and the AIA science team (public domain), <a href="https://sdo.gsfc.nasa.gov/" target="_blank" rel="noopener">sdo.gsfc.nasa.gov</a>.
+    Surface map — “2K Sun” by <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+    If you ship the surface map in your mod, keep this Solar System Scope credit; the NASA images need no credit but one is polite.
+  </div>
+</div>
+
+<script>
+const FRAG = `precision highp float;
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uTurb;    // surface turbulence
+uniform float uSpin;    // churn / rotation speed
+uniform float uSize;    // apparent radius
+uniform float uTemp;    // color: warm 0 .. white-hot 1
+uniform float uCorona;  // corona / flare strength
+uniform float uRise;    // 0 below the frame .. 1 risen into place
+uniform float uUseTex;  // 0 = procedural, 1 = sample uTex
+uniform float uMap;     // 0 = NASA disk projection, 1 = equirect surface map
+uniform float uBlend;   // photo modes: how much live noise to stir in (0..1)
+uniform float uExpl;    // explosion progress 0..1, or <0 when idle
+uniform sampler2D uTex;
+
+#define TAU 6.28318530718
+#define PI  3.14159265359
+
+float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float vnoise(vec3 x){
+  vec3 i=floor(x),f=fract(x); f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+                 mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+                 mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float fbm(vec3 p){ float a=0.5,s=0.0; for(int i=0;i<5;i++){ s+=a*vnoise(p); p*=2.02; a*=0.5; } return s; }
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes) / uRes.y;
+  vec3 ro = vec3(0.0,0.0,-3.0);                        // <- swap for engine camera
+  vec3 rd = normalize(vec3(uv, 1.5));
+  vec3 sunC = vec3(0.0, mix(-1.9, 0.0, uRise), 0.0);   // rises on the cutscene clock
+  float R = uSize;
+  // --- explosion drive (supernova: charge in, then blast) ---
+  float e = uExpl;                                     // <0 idle
+  float boom = max(e, 0.0);
+  float charge = smoothstep(0.1, 0.0, boom);           // 1 at the very start -> 0 (sun pulls in + brightens)
+  float blast  = smoothstep(0.12,0.3,boom) * (1.0 - smoothstep(0.3,0.9,boom)); // the detonation window
+  float expand = 1.0 - 0.25*charge;                    // just a small pull-in; the fireball replaces the sun
+  if(e >= 0.0) R *= max(expand, 0.5);
+  float flareBright = (e < 0.0) ? 1.0 : 1.0 + charge*2.0;
+
+  // disc geometry + an ANTI-ALIASED coverage mask (feathers the silhouette so there is no hard rim)
+  vec3  L    = normalize(sunC - ro);
+  float dist = length(sunC - ro);
+  float ang  = acos(clamp(dot(rd,L), -1.0, 1.0));
+  float edge = asin(clamp(R/dist, 0.0, 1.0));
+  float aa   = 2.5 / uRes.y;                          // ~1px feather in angular units
+  float cover = smoothstep(-aa, aa, edge - ang);      // 1 inside the disc, 0 outside, smooth across the limb
+
+  vec3 rt = normalize(cross(vec3(0.0,1.0,0.0), L));
+  vec3 up = cross(L, rt);
+  float az = atan(dot(rd,up), dot(rd,rt));
+
+  // ---- surface (only compute near/inside the disc) ----
+  vec3 surfaceCol = vec3(0.0);
+  if(cover > 0.001){
+    float b = dot(ro - sunC, rd);
+    float h = max(b*b - (dot(ro-sunC, ro-sunC) - R*R), 0.0);
+    vec3 pos = ro + rd*(-b - sqrt(h));               // nearest point (tangent when just missing)
+    vec3 n   = normalize(pos - sunC);
+
+    float a = uTime*uSpin*0.12;
+    mat3 rot = mat3(cos(a),0.0,sin(a), 0.0,1.0,0.0, -sin(a),0.0,cos(a));
+    vec3 sp  = rot*n;
+    float warp  = fbm(sp*2.5 + vec3(0.0,0.0,uTime*0.30*uSpin));
+    float cells = fbm(sp*6.0 + warp*2.2 - vec3(0.0,0.0,uTime*0.60*uSpin));
+    float f = pow(clamp(warp*0.55 + cells*0.75*uTurb, 0.0, 1.0), 1.5);
+
+    vec3 pcol = mix(vec3(0.20,0.015,0.0), vec3(0.85,0.11,0.0), smoothstep(0.00,0.22,f));
+    pcol = mix(pcol, vec3(1.0,0.42,0.05), smoothstep(0.22,0.48,f));
+    pcol = mix(pcol, vec3(1.0,0.78,0.22), smoothstep(0.48,0.74,f));
+    pcol = mix(pcol, vec3(1.0,0.97,0.82), smoothstep(0.74,1.00,f));
+    pcol = mix(pcol, vec3(1.0), uTemp*0.4);
+
+    vec3 albedo;
+    if(uUseTex > 0.5){
+      vec2 tuv = (uMap < 0.5)
+        ? n.xy*0.44 + 0.5
+        : vec2(atan(sp.z, sp.x)/TAU + 0.5, acos(clamp(sp.y,-1.0,1.0))/PI);
+      tuv += (vec2(warp, cells) - 0.5) * 0.06 * (0.3 + uSpin);   // churn the photo in place
+      vec3 tex = texture2D(uTex, tuv).rgb * 1.5;
+      albedo = tex * mix(1.0, 0.45 + 1.35*f, uBlend);   // churn via brightness only -> keeps the photo saturated (no pale clouds)
+    } else {
+      albedo = pcol;
+    }
+
+    vec3 LT = normalize(vec3(0.45,0.55,-0.3));
+    float relief = cells - fbm(sp*6.0 + warp*2.2 - vec3(0.0,0.0,uTime*0.60*uSpin) + LT*0.045);
+    albedo *= 1.0 + clamp(relief, -0.4, 0.4) * 1.3;            // granulation relief
+
+    float mu = max(dot(n,-rd), 0.0);
+    albedo *= mix(0.85, 1.2, pow(mu, 0.5));                    // gentle limb shading (detail continuous to the edge)
+    surfaceCol = albedo * 1.8;                                 // HDR
+  }
+
+  // ---- corona + flames (outside the disc) ----
+  // Angry fire: dense flame tongues licking all around the limb, varying height. Controlled by Edge flames.
+  float beyond = max(ang - edge, 0.0);
+  vec2 dir = vec2(cos(az), sin(az));
+  float h1 = fbm(vec3(dir*3.0,  uTime*0.6));                    // slow large flame lobes
+  float h2 = fbm(vec3(dir*9.0, -uTime*1.0));                    // faster flicker
+  float height = (0.3 + 0.7*h1) * (0.05 + 0.12*h2) + 0.03;      // tongue reach ~0.03..0.2, varying around the edge
+  float flame  = clamp(1.0 - beyond/height, 0.0, 1.0);          // 1 at the root -> 0 at the tip
+  float brk    = smoothstep(0.30, 0.72, fbm(vec3(dir*14.0, beyond*22.0 - uTime*1.8))); // break into licking tongues
+  flame *= brk;
+  float hotv = flame;                                           // root hot, tip cool
+  vec3 flameCol = mix(vec3(0.75,0.05,0.0), vec3(1.0,0.35,0.04), hotv);          // deep-red tips -> orange
+  flameCol = mix(flameCol, vec3(1.0,0.62,0.12), smoothstep(0.55,1.0,hotv));     // hot roots glow orange-yellow
+
+  // fade the surface to black over a fixed ~7px band at the rim (screen-space) -> no hard edge on any GPU
+  float edgeFade = smoothstep(0.0, aa*7.0, edge - ang);
+  vec3 col = surfaceCol * edgeFade * cover;                     // the sun disc on black
+  col += flameCol * flame * 1.0 * (1.0 - cover) * uCorona;      // prominences, only outside the disc; sparse flares, not a ring
+  col *= flareBright;                                           // super-bright at detonation
+  if(e >= 0.0){
+    col *= 1.0 - smoothstep(0.05, 0.25, boom);           // the original sun is consumed by the blast
+    float rad = length(uv);
+    vec2  dir = rad > 0.0001 ? uv/rad : vec2(1.0,0.0);
+
+    // --- billowing fireball: a growing ball of rolling fire clouds ---
+    float grow = smoothstep(0.02, 0.38, boom);
+    float fbR  = grow * 1.35;                                       // fireball swells out then holds
+    float cloud  = fbm(vec3(uv*5.5, uTime*0.7 + boom*1.2));         // rolling turbulence inside
+    float billow = (fbm(vec3(dir*3.5, boom*2.2))-0.5)*0.5 + (fbm(vec3(dir*9.0, boom*3.0))-0.5)*0.2; // cauliflower boundary
+    float d = rad - (fbR + billow + (cloud-0.5)*0.3);
+    float inside = smoothstep(0.1, -0.08, d);                       // soft fireball mask
+
+    // heat is mostly CLOUD-driven (flame cells + white hot spots), with a mild core boost
+    float radial = 1.0 - smoothstep(0.0, fbR, rad);
+    float heat = clamp(radial*0.6 + (cloud-0.35)*1.5, 0.0, 1.0);
+    heat *= 1.0 - smoothstep(0.5, 1.0, boom);                       // cools + darkens to smoke over time
+    vec3 fc = mix(vec3(0.03,0.012,0.012), vec3(0.6,0.07,0.0), smoothstep(0.0,0.22,heat)); // smoke -> deep red
+    fc = mix(fc, vec3(1.0,0.32,0.03), smoothstep(0.22,0.5,heat));   // orange
+    fc = mix(fc, vec3(1.0,0.72,0.18), smoothstep(0.5,0.78,heat));   // yellow
+    fc = mix(fc, vec3(1.0,0.97,0.85), smoothstep(0.82,1.0,heat));   // white-hot spots only
+    col += inside * fc * 2.4;
+
+    // brief hot core at the instant of detonation
+    col += vec3(1.0,0.93,0.78) * exp(-rad*4.0) * smoothstep(0.03,0.1,boom)*(1.0-smoothstep(0.1,0.28,boom)) * 3.0;
+  }
+  gl_FragColor = vec4(col, 1.0);   // raw HDR -> tonemap + glow happen in the bloom composite pass
+}`;
+const VERT = `attribute vec2 p; varying vec2 vUv; void main(){ vUv = p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }`;
+// --- bloom post-process shaders ---
+const BRIGHT_FS = `precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+void main(){ vec3 c=texture2D(uTex,vUv).rgb; float b=max(max(c.r,c.g),c.b); float k=max(b-uThresh,0.0)/max(b,1e-4); gl_FragColor=vec4(c*k,1.0); }`;
+const BLUR_FS = `precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uDir;
+void main(){ vec3 s=texture2D(uTex,vUv).rgb*0.227027;
+ s+=texture2D(uTex,vUv+uDir*1.3846154).rgb*0.3162162; s+=texture2D(uTex,vUv-uDir*1.3846154).rgb*0.3162162;
+ s+=texture2D(uTex,vUv+uDir*3.2307692).rgb*0.0702703; s+=texture2D(uTex,vUv-uDir*3.2307692).rgb*0.0702703;
+ gl_FragColor=vec4(s,1.0); }`;
+const COMP_FS = `precision highp float; varying vec2 vUv; uniform sampler2D uScene; uniform sampler2D uBloom; uniform float uAmt; uniform float uFlash; uniform vec2 uShake;
+void main(){ vec2 uv = clamp(vUv + uShake, 0.0, 1.0);
+ vec3 c = texture2D(uScene,uv).rgb + texture2D(uBloom,uv).rgb*uAmt;
+ c += vec3(1.0,0.96,0.88) * uFlash;                 // white detonation flash
+ c = c/(c+vec3(1.0)); c = pow(c,vec3(0.4545));
+ float vig = smoothstep(1.15, 0.35, length(vUv-0.5)); c *= mix(1.0, vig, 0.25); // subtle vignette
+ gl_FragColor=vec4(c,1.0); }`;
+
+const DEFAULTS = { uTurb:1.0, uSpin:1.0, uSize:1.25, uTemp:0.25, uCorona:1.0, uBlend:0.5, uBloom:1.2 };
+const META = {
+  uTurb:  {label:"Turbulence", min:0.2,max:1.8,step:.01,hint:"How violently the surface boils.",tex:false},
+  uSpin:  {label:"Churn speed",min:0.0,max:3.0,step:.01,hint:"Rotation + flow of the plasma.",tex:true},
+  uSize:  {label:"Size",       min:0.6,max:1.9,step:.01,hint:"Apparent radius on screen.",tex:true},
+  uTemp:  {label:"Temperature",min:0.0,max:1.0,step:.01,hint:"Warm orange to white-hot.",tex:false},
+  uCorona:{label:"Edge flames", min:0.0,max:2.2,step:.01,hint:"Solar prominences licking off the limb. 0 = none.",tex:true},
+  uBlend: {label:"Noise blend",min:0.0,max:1.0,step:.01,hint:"Photo modes only: stir live plasma into the photo.",tex:true},
+  uBloom: {label:"Bloom",      min:0.0,max:3.0,step:.01,hint:"HDR glow: bright parts bleed light into the dark.",tex:true},
+};
+const CITES = {
+  proc:"",
+  "171":"NASA / SDO · AIA 171 Å",
+  "304":"NASA / SDO · AIA 304 Å",
+  surface:"Solar System Scope · CC BY 4.0",
+};
+const state = Object.assign({}, DEFAULTS);
+let mode = 'proc';
+
+const rack = document.getElementById('rack');
+const cards = {};
+for(const key of Object.keys(META)){
+  const m = META[key];
+  const card = document.createElement('div'); card.className='ctrl'; cards[key]=card;
+  card.innerHTML = `<div class="row"><label for="${key}">${m.label}</label><span class="val" id="v_${key}"></span></div>
+    <input type="range" id="${key}" min="${m.min}" max="${m.max}" step="${m.step}">
+    <div class="hint">${m.hint}</div>`;
+  rack.appendChild(card);
+  const input = card.querySelector('input'), val = card.querySelector('.val');
+  input.value = state[key];
+  const sync = ()=>{ state[key]=parseFloat(input.value); val.textContent=(+input.value).toFixed(2); };
+  input.addEventListener('input', sync); sync();
+}
+function refreshDials(){
+  const photo = mode !== 'proc';
+  cards.uTurb.classList.toggle('off', photo);   // turbulence/temp only shape the procedural surface
+  cards.uTemp.classList.toggle('off', photo);
+  cards.uBlend.classList.toggle('off', !photo); // blend only matters with a photo
+}
+
+document.getElementById('src').textContent = FRAG;
+
+// ---- WebGL + bloom pipeline ----
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl',{antialias:false,powerPreference:'high-performance',alpha:false});
+const fpsEl=document.getElementById('fps'), citeEl=document.getElementById('cite');
+let ok=!!gl;
+const textures={}, loaded={};
+let sunProg,brightProg,blurProg,compProg, U={}, hfType=null, sceneFBO=null, bloomA=null, bloomB=null;
+
+function compile(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); return null; } return s; }
+function makeProg(fsrc){
+  const vs=compile(gl.VERTEX_SHADER,VERT), fs=compile(gl.FRAGMENT_SHADER,fsrc); if(!vs||!fs) return null;
+  const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.bindAttribLocation(p,0,'p'); gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); return null; } return p;
+}
+function makeTarget(w,h,type,linear){
+  const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,type,null);
+  const flt=linear?gl.LINEAR:gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,flt); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,flt);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  const okFB=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+  return {t,f,w,h,okFB};
+}
+function buildTargets(w,h){
+  sceneFBO=makeTarget(w,h,hfType,false);
+  if(!sceneFBO.okFB && hfType!==gl.UNSIGNED_BYTE){ hfType=gl.UNSIGNED_BYTE; sceneFBO=makeTarget(w,h,hfType,false); }
+  const bw=Math.max(1,w>>2), bh=Math.max(1,h>>2);
+  bloomA=makeTarget(bw,bh,gl.UNSIGNED_BYTE,true); bloomB=makeTarget(bw,bh,gl.UNSIGNED_BYTE,true);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+function draw(){ gl.drawArrays(gl.TRIANGLES,0,3); }
+
+if(ok){
+  sunProg=makeProg(FRAG); brightProg=makeProg(BRIGHT_FS); blurProg=makeProg(BLUR_FS); compProg=makeProg(COMP_FS);
+  ok = !!(sunProg&&brightProg&&blurProg&&compProg);
+}
+if(ok){
+  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+  U.sun={}; for(const u of ['uRes','uTime','uTurb','uSpin','uSize','uTemp','uCorona','uRise','uUseTex','uMap','uBlend','uExpl','uTex']) U.sun[u]=gl.getUniformLocation(sunProg,u);
+  U.bright={uTex:gl.getUniformLocation(brightProg,'uTex'),uThresh:gl.getUniformLocation(brightProg,'uThresh')};
+  U.blur={uTex:gl.getUniformLocation(blurProg,'uTex'),uDir:gl.getUniformLocation(blurProg,'uDir')};
+  U.comp={uScene:gl.getUniformLocation(compProg,'uScene'),uBloom:gl.getUniformLocation(compProg,'uBloom'),uAmt:gl.getUniformLocation(compProg,'uAmt'),uFlash:gl.getUniformLocation(compProg,'uFlash'),uShake:gl.getUniformLocation(compProg,'uShake')};
+
+  const extHF=gl.getExtension('OES_texture_half_float'); gl.getExtension('OES_texture_half_float_linear'); gl.getExtension('EXT_color_buffer_half_float');
+  hfType = extHF ? extHF.HALF_FLOAT_OES : gl.UNSIGNED_BYTE;
+  gl.useProgram(sunProg); gl.uniform1i(U.sun.uTex,0);
+
+  // load the three source images published alongside this page (same-origin -> WebGL-safe)
+  const SRC={ "171":{file:"sun_171.jpg",wrap:false}, "304":{file:"sun_304.jpg",wrap:false}, surface:{file:"sun_surface.jpg",wrap:true} };
+  for(const k in SRC){
+    const tex=gl.createTexture(); textures[k]=tex;
+    const img=new Image();
+    img.onload=()=>{
+      gl.bindTexture(gl.TEXTURE_2D,tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,img);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S, SRC[k].wrap?gl.REPEAT:gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      loaded[k]=true;
+    };
+    img.onerror=()=>{ loaded[k]=false; };
+    img.src=SRC[k].file;
+  }
+} else {
+  fpsEl.textContent="WebGL unavailable on this device"; fpsEl.style.color="var(--ember-soft)";
+}
+
+// ---- mode switcher ----
+document.getElementById('modes').addEventListener('click', e=>{
+  const btn=e.target.closest('.seg'); if(!btn) return;
+  mode=btn.dataset.mode;
+  [...document.querySelectorAll('.seg')].forEach(s=>s.setAttribute('aria-pressed', s===btn));
+  citeEl.textContent=CITES[mode]||"";
+  refreshDials();
+});
+refreshDials();
+
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2), w=canvas.clientWidth, h=canvas.clientHeight;
+  canvas.width=Math.max(1,w*dpr|0); canvas.height=Math.max(1,h*dpr|0);
+  if(ok) buildTargets(canvas.width, canvas.height);
+}
+window.addEventListener('resize',resize);
+
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let paused=reduced, clock=0, last=performance.now(), riseStart=-999, explStart=-999, frames=0, fpsT=performance.now();
+const EXPL_DUR=4.5;
+const smoothstep=(a,b,x)=>{ const t=Math.min(1,Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); };
+
+document.getElementById('rise').addEventListener('click',()=>{ riseStart=clock; });
+document.getElementById('boom').addEventListener('click',()=>{ explStart=clock; });
+document.getElementById('reset').addEventListener('click',()=>{
+  Object.assign(state,DEFAULTS);
+  for(const key of Object.keys(META)){ const i=document.getElementById(key); i.value=DEFAULTS[key]; i.dispatchEvent(new Event('input')); }
+});
+const pauseBtn=document.getElementById('pause');
+pauseBtn.addEventListener('click',()=>{ paused=!paused; pauseBtn.textContent=paused?'Play':'Pause'; last=performance.now(); });
+if(reduced) pauseBtn.textContent='Play';
+
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(!paused) clock+=dt;
+  if(ok && sceneFBO){
+    const rise = riseStart<-900 ? 1.0 : Math.min(1,Math.max(0,(clock-riseStart)/2.2));
+    const usePhoto = mode!=='proc' && loaded[mode];
+
+    // PASS 1 — render the sun into the HDR scene buffer (no tonemap yet)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO.f); gl.viewport(0,0,sceneFBO.w,sceneFBO.h);
+    gl.useProgram(sunProg);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, usePhoto?textures[mode]:null); gl.uniform1i(U.sun.uTex,0);
+    gl.uniform2f(U.sun.uRes,sceneFBO.w,sceneFBO.h);
+    gl.uniform1f(U.sun.uTime,clock);
+    gl.uniform1f(U.sun.uTurb,state.uTurb); gl.uniform1f(U.sun.uSpin,state.uSpin); gl.uniform1f(U.sun.uSize,state.uSize);
+    gl.uniform1f(U.sun.uTemp,state.uTemp); gl.uniform1f(U.sun.uCorona,state.uCorona); gl.uniform1f(U.sun.uRise,rise);
+    gl.uniform1f(U.sun.uUseTex, usePhoto?1.0:0.0); gl.uniform1f(U.sun.uMap, mode==='surface'?1.0:0.0); gl.uniform1f(U.sun.uBlend,state.uBlend);
+    // explosion timeline
+    let e=-1.0, flash=0.0, shx=0.0, shy=0.0;
+    if(explStart>-900){
+      e=(clock-explStart)/EXPL_DUR;
+      if(e>=1.0){ explStart=-999; e=-1.0; }
+      else {
+        flash = smoothstep(0.04,0.1,e)*(1.0-smoothstep(0.1,0.26,e))*0.5;     // brief flash kicking off the fireball
+        const amp = (e>0.16)? 0.012*Math.exp(-(e-0.16)*7.0) : 0.0;           // decaying screen shake
+        shx=(Math.random()-0.5)*amp; shy=(Math.random()-0.5)*amp;
+      }
+    }
+    gl.uniform1f(U.sun.uExpl, e);
+    draw();
+
+    // PASS 2 — bright-pass + downsample into bloomA
+    gl.bindFramebuffer(gl.FRAMEBUFFER, bloomA.f); gl.viewport(0,0,bloomA.w,bloomA.h);
+    gl.useProgram(brightProg); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneFBO.t);
+    gl.uniform1i(U.bright.uTex,0); gl.uniform1f(U.bright.uThresh,0.9); draw();
+
+    // PASS 3 — separable Gaussian blur, ping-pong twice for a wide glow
+    for(let i=0;i<2;i++){
+      gl.bindFramebuffer(gl.FRAMEBUFFER, bloomB.f); gl.viewport(0,0,bloomB.w,bloomB.h);
+      gl.useProgram(blurProg); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, bloomA.t);
+      gl.uniform1i(U.blur.uTex,0); gl.uniform2f(U.blur.uDir, 1.0/bloomA.w, 0.0); draw();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, bloomA.f); gl.viewport(0,0,bloomA.w,bloomA.h);
+      gl.bindTexture(gl.TEXTURE_2D, bloomB.t); gl.uniform2f(U.blur.uDir, 0.0, 1.0/bloomB.h); draw();
+    }
+
+    // PASS 4 — composite scene + bloom to the screen, tonemap + gamma here
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,canvas.width,canvas.height);
+    gl.useProgram(compProg);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneFBO.t); gl.uniform1i(U.comp.uScene,0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bloomA.t); gl.uniform1i(U.comp.uBloom,1);
+    gl.uniform1f(U.comp.uAmt, state.uBloom);
+    gl.uniform1f(U.comp.uFlash, flash); gl.uniform2f(U.comp.uShake, shx, shy); draw();
+
+    frames++;
+    if(now-fpsT>500){ fpsEl.textContent=Math.round(frames*1000/(now-fpsT))+" fps · "+canvas.width+"×"+canvas.height; frames=0; fpsT=now; }
+  }
+  requestAnimationFrame(frame);
+}
+resize(); requestAnimationFrame(frame);
+</script>
